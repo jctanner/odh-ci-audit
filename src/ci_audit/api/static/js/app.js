@@ -8,6 +8,7 @@ class App {
         this.testRunDetail = null;
         this.logViewer = null;
         this.queueManager = null;
+        this.loadingFromHash = false;
     }
 
     init() {
@@ -25,8 +26,53 @@ class App {
             });
         });
 
-        // Load initial view
-        this.showTestRuns();
+        // Set up hash change listener for browser back/forward
+        window.addEventListener('hashchange', () => {
+            this.loadFromHash();
+        });
+
+        // Load from hash or default view
+        this.loadFromHash();
+    }
+
+    /**
+     * Parse the current hash and load the appropriate view
+     */
+    loadFromHash() {
+        this.loadingFromHash = true;
+        const hash = window.location.hash.slice(1); // Remove the #
+
+        if (!hash || hash === 'jobs') {
+            this.showTestRuns();
+        } else if (hash === 'queue') {
+            this.switchTab('queue');
+        } else if (hash === 'stats') {
+            this.switchTab('stats');
+        } else if (hash.startsWith('test-run/')) {
+            const buildId = hash.split('/')[1];
+            if (buildId) {
+                this.showTestRunDetail(buildId);
+            }
+        } else if (hash.startsWith('log/')) {
+            const parts = hash.split('/');
+            const buildId = parts[1];
+            const logType = parts[2];
+            if (buildId && logType) {
+                this.showLog(buildId, logType);
+            }
+        } else {
+            // Unknown hash, default to test runs
+            this.showTestRuns();
+        }
+        this.loadingFromHash = false;
+    }
+
+    /**
+     * Update the URL hash without triggering hashchange event
+     */
+    updateHash(hash) {
+        if (this.loadingFromHash) return; // Don't update hash if we're loading from it
+        window.location.hash = hash;
     }
 
     switchTab(tabName) {
@@ -50,9 +96,12 @@ class App {
 
         this.currentTab = tabName;
 
+        // Update URL hash
+        this.updateHash(tabName);
+
         // Load tab content
         if (tabName === 'jobs') {
-            this.showTestRuns();
+            this.testRunsTable.render();
         } else if (tabName === 'queue') {
             this.queueManager.render();
         } else if (tabName === 'stats') {
@@ -62,16 +111,61 @@ class App {
 
     showTestRuns() {
         this.currentTab = 'jobs';
+        this.updateHash('jobs');
+
+        // Update active tab
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.classList.remove('active');
+            if (button.dataset.tab === 'jobs') {
+                button.classList.add('active');
+            }
+        });
+
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.remove('active');
+        });
+        document.getElementById('jobs-tab').classList.add('active');
+
         this.testRunsTable.render();
     }
 
     showTestRunDetail(buildId) {
         this.currentTab = 'jobs';
+        this.updateHash(`test-run/${buildId}`);
+
+        // Update active tab
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.classList.remove('active');
+            if (button.dataset.tab === 'jobs') {
+                button.classList.add('active');
+            }
+        });
+
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.remove('active');
+        });
+        document.getElementById('jobs-tab').classList.add('active');
+
         this.testRunDetail.render(buildId);
     }
 
     showLog(buildId, logType) {
         this.currentTab = 'jobs';
+        this.updateHash(`log/${buildId}/${logType}`);
+
+        // Update active tab
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.classList.remove('active');
+            if (button.dataset.tab === 'jobs') {
+                button.classList.add('active');
+            }
+        });
+
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.remove('active');
+        });
+        document.getElementById('jobs-tab').classList.add('active');
+
         this.logViewer.render(buildId, logType);
     }
 
