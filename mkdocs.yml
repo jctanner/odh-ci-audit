@@ -1,0 +1,151 @@
+site_name: CI Audit Documentation
+site_url: https://tannerjc.net/docs/odh_ci_audit
+site_description: Analysis of OpenDataHub Operator CI/CD Test Failures
+site_author: CI Audit Team
+repo_url: https://github.com/opendatahub-io/opendatahub-operator
+repo_name: opendatahub-operator
+
+theme:
+  name: material
+  palette:
+    # Light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - admonition
+  - pymdownx.details
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+
+  - Setup:
+    - Architecture: setup/architecture.md
+    - Installation: setup/installation.md
+    - Configuration: setup/configuration.md
+    - Database Schema: setup/database-schema.md
+    - Local Development: setup/local-development.md
+    - PostgreSQL Deployment: setup/postgresql-deployment.md
+    - Worker System: setup/worker-system.md
+
+  - Prow CI & Testing:
+    - Prow Architecture: prow/architecture.md
+    - Prow JSON API: prow/api.md
+    - Test Framework (Ginkgo/Gomega): prow/test-framework.md
+    - Job Types & Workflows: prow/job-types.md
+    - GCS Artifact Structure: prow/artifacts.md
+    - E2E Test Suites: prow/test-suites.md
+
+  - Analysis:
+    - Test Duration:
+      - Overview: analysis/duration/overview.md
+      - Time Series Analysis: analysis/duration/timeseries.md
+      - Per-Suite Breakdown: analysis/duration/per-suite.md
+      - SQL & Python: analysis/duration/code.md
+
+    - Failure Analysis:
+      - Overview: analysis/failures/overview.md
+      - Classification Methodology: analysis/failures/classification.md
+      - Time Series Analysis: analysis/failures/timeseries.md
+      - Per-Test Breakdown: analysis/failures/per-test.md
+      - SQL & Python: analysis/failures/code.md
+
+    - Failure Types (by volume):
+      - 01 - Infrastructure Failures: analysis/failure-types/01-infrastructure.md
+      - 02 - Test Flakes: analysis/failure-types/02-flakes.md
+      - 03 - Code Regressions: analysis/failure-types/03-regressions.md
+      - 04 - Configuration Issues: analysis/failure-types/04-configuration.md
+      - 05 - Dependency Failures: analysis/failure-types/05-dependencies.md
+      - 06 - Environment Issues: analysis/failure-types/06-environment.md
+
+  - Findings:
+    - Data Overview: findings/data-overview.md
+    - Most Common Failures: findings/common-failures.md
+    - Flake Rate Analysis: findings/flake-rate.md
+    - Same-SHA Analysis (Code vs Infrastructure): findings/same-sha-analysis.md
+    - Time Cost Analysis: findings/time-cost.md
+    - Infrastructure Issues: findings/infrastructure.md
+    - Hot Spare Cluster Analysis: findings/hot-spare-analysis.md
+    - Test Improvements: findings/test-improvements.md
+    - CI Pipeline Issues: findings/ci-pipeline.md
+
+  - Debugging & Remediation:
+    - Overview: debugging/index.md
+    - Fail-Fast Framework: debugging/fail-fast-framework.md
+    - Patch Development: debugging/patch-development.md
+    - Diagnostic Patterns: debugging/diagnostic-patterns.md
+    - Results & Impact: debugging/results-impact.md
+
+  - Recommendations:
+    - Overview & Roadmap: recommendations/overview.md
+    - Tier 1 - Quick Wins:
+      - Auto-Retry Configuration: recommendations/auto-retry-configuration.md
+      - Fail-Fast Infrastructure Detection: recommendations/fail-fast-patterns.md
+      - Timeout Strategy: recommendations/timeout-strategy.md
+      - Infrastructure Visibility: recommendations/infrastructure-visibility.md
+    - Tier 2 - Infrastructure:
+      - Peak-Hour Capacity: recommendations/peak-hour-capacity.md
+      - Image Pull-Through Cache: recommendations/image-cache.md
+      - Off-Peak Scheduling: recommendations/off-peak-scheduling.md
+    - Tier 3 - Process & Monitoring:
+      - Flake Metrics Dashboard: recommendations/flake-metrics.md
+      - Smart Retry Timing: recommendations/smart-retry.md
+      - Quarantine Chronic Failures: recommendations/quarantine-tests.md
+      - Component Reliability: recommendations/component-reliability.md
+    - Tier 4 - Test Quality:
+      - Test Scope & Responsibility Boundaries: recommendations/test-scope.md
+      - Test Isolation & Cleanup: recommendations/test-isolation.md
+
+  - Code Reference:
+    - SQL Query Library: code/queries.md
+    - Analysis Scripts: code/analysis-scripts.md
+    - Data Models: code/models.md
+    - Collectors: code/collectors.md
+    - Parsers: code/parsers.md
+
+  - API Reference:
+    - ci_audit.collectors: api/collectors.md
+    - ci_audit.database: api/database.md
+    - ci_audit.utils: api/utils.md
+    - ci_audit.workers: api/workers.md

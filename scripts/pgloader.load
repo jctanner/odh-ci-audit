@@ -1,0 +1,47 @@
+/*
+ * pgloader configuration for migrating CI Audit SQLite to PostgreSQL
+ *
+ * This configuration:
+ * 1. Copies all tables and data from SQLite to PostgreSQL
+ * 2. Recreates all indexes
+ * 3. Converts Text JSON fields to JSONB for better querying
+ * 4. Resets sequences to correct values
+ */
+
+LOAD DATABASE
+    FROM sqlite:///migration/ci_audit.db
+    INTO postgresql://ci_audit:ci_audit_secure_password_123@postgres:5432/ci_audit
+
+WITH include drop, create tables, create indexes, reset sequences,
+     workers = 4, batch size = 10000
+
+-- Cast rules for SQLite -> PostgreSQL type conversions
+CAST type datetime to timestamptz drop default drop not null using zero-dates-to-null,
+     type date to date drop default drop not null using zero-dates-to-null
+
+-- After loading all data, convert Text JSON fields to JSONB
+AFTER LOAD DO
+    -- Convert pull_requests JSON fields
+    $$ ALTER TABLE pull_requests ALTER COLUMN labels TYPE jsonb USING CASE WHEN labels IS NOT NULL AND labels != '' THEN labels::jsonb ELSE '[]'::jsonb END; $$,
+    $$ ALTER TABLE pull_requests ALTER COLUMN pr_metadata TYPE jsonb USING CASE WHEN pr_metadata IS NOT NULL AND pr_metadata != '' THEN pr_metadata::jsonb ELSE '{}'::jsonb END; $$,
+
+    -- Convert test_runs JSON fields
+    $$ ALTER TABLE test_runs ALTER COLUMN repos TYPE jsonb USING CASE WHEN repos IS NOT NULL AND repos != '' THEN repos::jsonb ELSE '{}'::jsonb END; $$,
+    $$ ALTER TABLE test_runs ALTER COLUMN prowjob_metadata TYPE jsonb USING CASE WHEN prowjob_metadata IS NOT NULL AND prowjob_metadata != '' THEN prowjob_metadata::jsonb ELSE '{}'::jsonb END; $$,
+
+    -- Convert build_logs JSON fields
+    $$ ALTER TABLE build_logs ALTER COLUMN error_lines TYPE jsonb USING CASE WHEN error_lines IS NOT NULL AND error_lines != '' THEN error_lines::jsonb ELSE '[]'::jsonb END; $$,
+
+    -- Convert pr_comments JSON fields
+    $$ ALTER TABLE pr_comments ALTER COLUMN comment_metadata TYPE jsonb USING CASE WHEN comment_metadata IS NOT NULL AND comment_metadata != '' THEN comment_metadata::jsonb ELSE '{}'::jsonb END; $$,
+
+    -- Convert failure_patterns JSON fields
+    $$ ALTER TABLE failure_patterns ALTER COLUMN affected_prs TYPE jsonb USING CASE WHEN affected_prs IS NOT NULL AND affected_prs != '' THEN affected_prs::jsonb ELSE '[]'::jsonb END; $$,
+
+    -- Verify counts
+    $$ SELECT 'pull_requests' AS table_name, COUNT(*) AS row_count FROM pull_requests; $$,
+    $$ SELECT 'test_runs' AS table_name, COUNT(*) AS row_count FROM test_runs; $$,
+    $$ SELECT 'test_cases' AS table_name, COUNT(*) AS row_count FROM test_cases; $$,
+    $$ SELECT 'build_logs' AS table_name, COUNT(*) AS row_count FROM build_logs; $$,
+    $$ SELECT 'pr_comments' AS table_name, COUNT(*) AS row_count FROM pr_comments; $$,
+    $$ SELECT 'failure_patterns' AS table_name, COUNT(*) AS row_count FROM failure_patterns; $$;

@@ -1,0 +1,71 @@
+# CI Audit Configuration
+# Copy this file to config.yaml and update with your settings
+
+github:
+  # GitHub Personal Access Token (can use ${GITHUB_TOKEN} env var)
+  token: ${GITHUB_TOKEN}
+  repo_owner: opendatahub-io
+  repo_name: opendatahub-operator
+  # GitHub API rate limits (5000 requests/hour for authenticated)
+  rate_limit_requests: 5000
+  rate_limit_period: 3600  # 1 hour in seconds
+
+gcs:
+  bucket: test-platform-results
+  base_path: pr-logs/pull/opendatahub-io_opendatahub-operator
+  job_name: pull-ci-opendatahub-io-opendatahub-operator-main-opendatahub-operator-e2e
+  # GCS rate limits (conservative)
+  rate_limit_requests: 1000
+  rate_limit_period: 60  # 1 minute in seconds
+
+collection:
+  # Date range for collection (YYYY-MM-DD format)
+  # NOTE: GCS retention appears to be ~6 months, so data older than July 2025 may not be available
+  start_date: "2025-07-01"  # ~6 months ago (adjusted for GCS retention)
+  end_date: "2026-01-06"
+  # Parallel download workers
+  max_workers: 5
+  # Retry configuration for transient failures
+  retry_attempts: 3
+  retry_backoff: 2  # exponential backoff factor
+  # Artifact caching
+  cache_artifacts: true
+  cache_directory: ./data/cache
+
+database:
+  # PostgreSQL database connection
+  # Use environment variables for credentials (see .env file)
+  user: ${POSTGRES_USER}
+  password: ${POSTGRES_PASSWORD}
+  host: ${POSTGRES_HOST}
+  port: ${POSTGRES_PORT}
+  name: ${POSTGRES_DB}
+
+  # Connection pooling
+  pool_size: 10
+  max_overflow: 20
+
+  # Echo SQL statements to stdout (debug)
+  echo_sql: false
+
+workers:
+  # Enable parallel worker mode
+  enabled: false
+  # Claim timeout in minutes (release stale claims after this period)
+  claim_timeout_minutes: 30
+  # Maximum retry attempts for failed PRs
+  max_retries: 3
+
+analysis:
+  # Pattern detection thresholds
+  pattern_similarity_threshold: 0.85
+  min_pattern_occurrences: 3
+  # Clustering algorithm settings
+  clustering_algorithm: dbscan
+  clustering_eps: 0.3
+  clustering_min_samples: 2
+
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: ./ci_audit.log

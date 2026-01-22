@@ -1,0 +1,294 @@
+version: '3.8'
+
+# CI Audit PostgreSQL Deployment with Parallel Workers
+#
+# Services:
+#   - postgres: PostgreSQL database with persistent storage
+#   - migration: One-time SQLite to PostgreSQL migration using pgloader
+#   - producer: Populate work queue from GitHub PRs
+#   - worker1-5: Parallel data collection workers
+#
+# Usage:
+#   # Start database
+#   podman-compose up -d postgres
+#
+#   # Run migration (one-time)
+#   podman-compose up migration
+#
+#   # Populate work queue
+#   podman-compose up producer
+#
+#   # Start all workers
+#   podman-compose up -d worker1 worker2 worker3 worker4 worker5
+#
+#   # View logs
+#   podman-compose logs -f worker1
+#
+#   # Stop all services
+#   podman-compose down
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    container_name: ci-audit-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ci_audit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ci_audit_secure_password_123}
+      POSTGRES_DB: ${POSTGRES_DB:-ci_audit}
+      # Performance tuning for batch operations
+      POSTGRES_SHARED_BUFFERS: 512MB
+      POSTGRES_WORK_MEM: 128MB
+      POSTGRES_MAINTENANCE_WORK_MEM: 256MB
+    volumes:
+      # Persistent storage for database (bind mount)
+      - ./pg_data:/var/lib/postgresql/data:Z
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ci_audit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Migration Service (one-time)
+  # Run manually with: podman-compose up migration
+  # Disabled from default "up" to avoid log interference
+  migration:
+    build:
+      context: .
+      dockerfile: Containerfile.migration
+    container_name: ci-audit-migration
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-ci_audit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ci_audit_secure_password_123}
+      POSTGRES_DB: ${POSTGRES_DB:-ci_audit}
+      SQLITE_DB: /migration/ci_audit.db
+      PGPASSWORD: ${POSTGRES_PASSWORD:-ci_audit_secure_password_123}
+    volumes:
+      # Mount SQLite database for migration (read-only)
+      - ./data/ci_audit.db:/migration/ci_audit.db:ro,Z
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Migration runs once and exits
+    restart: "no"
+    # Exclude from default profile so it doesn't interfere with logs
+    profiles:
+      - migration
+
+  # Producer Service (populate work queue)
+  # Run manually with: podman-compose --profile setup up producer
+  producer:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: ci-audit-producer
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-ci_audit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ci_audit_secure_password_123}
+      POSTGRES_DB: ${POSTGRES_DB:-ci_audit}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+    command: ["python3", "scripts/producer.py"]
+    volumes:
+      # Bind mount source code for live updates (no rebuild needed)
+      - ./src:/app/src:ro,z
+      - ./scripts:/app/scripts:ro,z
+      # Mount config and .env files (use :z for shared access across containers)
+      - ./config/config.yaml:/app/config/config.yaml:ro,z
+      - ./.env:/app/.env:ro,z
+      # E2E test logs storage
+      - ./logs:/logs:z
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Producer runs once and exits
+    restart: "no"
+    # Exclude from default profile
+    profiles:
+      - setup
+
+  # Worker 1
+  worker1:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: ci-audit-worker1
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-ci_audit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ci_audit_secure_password_123}
+      POSTGRES_DB: ${POSTGRES_DB:-ci_audit}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      WORKER_ID: worker1
+    command: ["python3", "scripts/worker.py", "--poll-interval", "5", "--no-work-log-interval", "60", "--skip-comments"]
+    volumes:
+      # Bind mount source code for live updates (no rebuild needed)
+      - ./src:/app/src:ro,z
+      - ./scripts:/app/scripts:ro,z
+      - ./config/config.yaml:/app/config/config.yaml:ro,z
+      - ./.env:/app/.env:ro,z
+      # Optional: cache directory for GCS artifacts (shared across workers)
+      - ./data/cache:/app/data/cache:z
+      # E2E test logs storage (shared across workers)
+      - ./logs:/logs:z
+    # Temporarily disabled to allow workers to start independently
+    # depends_on:
+    #   producer:
+    #     condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Worker 2
+  worker2:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: ci-audit-worker2
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-ci_audit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ci_audit_secure_password_123}
+      POSTGRES_DB: ${POSTGRES_DB:-ci_audit}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      WORKER_ID: worker2
+    command: ["python3", "scripts/worker.py", "--poll-interval", "5", "--no-work-log-interval", "60", "--skip-comments"]
+    volumes:
+      # Bind mount source code for live updates (no rebuild needed)
+      - ./src:/app/src:ro,z
+      - ./scripts:/app/scripts:ro,z
+      - ./config/config.yaml:/app/config/config.yaml:ro,z
+      - ./.env:/app/.env:ro,z
+      - ./data/cache:/app/data/cache:z
+      # E2E test logs storage (shared across workers)
+      - ./logs:/logs:z
+    # Temporarily disabled to allow workers to start independently
+    # depends_on:
+    #   producer:
+    #     condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Worker 3
+  worker3:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: ci-audit-worker3
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-ci_audit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ci_audit_secure_password_123}
+      POSTGRES_DB: ${POSTGRES_DB:-ci_audit}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      WORKER_ID: worker3
+    command: ["python3", "scripts/worker.py", "--poll-interval", "5", "--no-work-log-interval", "60", "--skip-comments"]
+    volumes:
+      # Bind mount source code for live updates (no rebuild needed)
+      - ./src:/app/src:ro,z
+      - ./scripts:/app/scripts:ro,z
+      - ./config/config.yaml:/app/config/config.yaml:ro,z
+      - ./.env:/app/.env:ro,z
+      - ./data/cache:/app/data/cache:z
+      # E2E test logs storage (shared across workers)
+      - ./logs:/logs:z
+    # Temporarily disabled to allow workers to start independently
+    # depends_on:
+    #   producer:
+    #     condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Worker 4
+  worker4:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: ci-audit-worker4
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-ci_audit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ci_audit_secure_password_123}
+      POSTGRES_DB: ${POSTGRES_DB:-ci_audit}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      WORKER_ID: worker4
+    command: ["python3", "scripts/worker.py", "--poll-interval", "5", "--no-work-log-interval", "60", "--skip-comments"]
+    volumes:
+      # Bind mount source code for live updates (no rebuild needed)
+      - ./src:/app/src:ro,z
+      - ./scripts:/app/scripts:ro,z
+      - ./config/config.yaml:/app/config/config.yaml:ro,z
+      - ./.env:/app/.env:ro,z
+      - ./data/cache:/app/data/cache:z
+      # E2E test logs storage (shared across workers)
+      - ./logs:/logs:z
+    # Temporarily disabled to allow workers to start independently
+    # depends_on:
+    #   producer:
+    #     condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Worker 5
+  worker5:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: ci-audit-worker5
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-ci_audit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ci_audit_secure_password_123}
+      POSTGRES_DB: ${POSTGRES_DB:-ci_audit}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      WORKER_ID: worker5
+    command: ["python3", "scripts/worker.py", "--poll-interval", "5", "--no-work-log-interval", "60", "--skip-comments"]
+    volumes:
+      # Bind mount source code for live updates (no rebuild needed)
+      - ./src:/app/src:ro,z
+      - ./scripts:/app/scripts:ro,z
+      - ./config/config.yaml:/app/config/config.yaml:ro,z
+      - ./.env:/app/.env:ro,z
+      - ./data/cache:/app/data/cache:z
+      # E2E test logs storage (shared across workers)
+      - ./logs:/logs:z
+    # Temporarily disabled to allow workers to start independently
+    # depends_on:
+    #   producer:
+    #     condition: service_completed_successfully
+    restart: unless-stopped
+
+  # REST API Service
+  api:
+    build:
+      context: .
+      dockerfile: Containerfile.api
+    container_name: ci-audit-api
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-ci_audit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ci_audit_secure_password_123}
+      POSTGRES_DB: ${POSTGRES_DB:-ci_audit}
+      FLASK_ENV: development
+      FLASK_HOST: 0.0.0.0
+      FLASK_PORT: 5000
+    ports:
+      - "5000:5000"
+    volumes:
+      # Bind mount source code for live updates (no rebuild needed)
+      - ./src:/app/src:z
+      - ./config/config.yaml:/app/config/config.yaml:ro,z
+      - ./.env:/app/.env:ro,z
+      # Mount logs directory for reading e2e logs (read-only)
+      - ./logs:/logs:ro,z
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped

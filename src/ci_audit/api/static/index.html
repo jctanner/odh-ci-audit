@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CI Audit Dashboard</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>CI Audit Dashboard</h1>
+            <p class="subtitle">Browse test runs, view logs, and manage the collection queue</p>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab-button active" data-tab="jobs">Test Runs</button>
+            <button class="tab-button" data-tab="queue">Queue Management</button>
+            <button class="tab-button" data-tab="stats">Statistics</button>
+        </nav>
+
+        <main>
+            <!-- Test Runs Tab -->
+            <div id="jobs-tab" class="tab-content active">
+                <div id="test-runs-view"></div>
+            </div>
+
+            <!-- Queue Management Tab -->
+            <div id="queue-tab" class="tab-content">
+                <div id="queue-view"></div>
+            </div>
+
+            <!-- Statistics Tab -->
+            <div id="stats-tab" class="tab-content">
+                <div id="stats-view"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/js/api.js"></script>
+    <script src="/js/components/TestRunsTable.js"></script>
+    <script src="/js/components/TestRunDetail.js"></script>
+    <script src="/js/components/LogViewer.js"></script>
+    <script src="/js/components/QueueManager.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

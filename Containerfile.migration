@@ -1,0 +1,24 @@
+# PostgreSQL Migration Container
+# Uses pgloader to migrate SQLite database to PostgreSQL
+FROM docker.io/library/debian:bookworm-slim
+
+# Install pgloader and PostgreSQL client tools
+RUN apt-get update && \
+    apt-get install -y \
+    pgloader \
+    postgresql-client \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create migration working directory
+WORKDIR /migration
+
+# Copy migration scripts
+COPY scripts/pgloader.load .
+COPY scripts/migrate_to_postgres.sh .
+
+# Make script executable
+RUN chmod +x migrate_to_postgres.sh
+
+# Default command: run migration
+CMD ["./migrate_to_postgres.sh"]
