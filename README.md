@@ -26,6 +26,7 @@ ci_audit/
 │   └── config.yaml.example
 ├── data/                  # Database and cache (gitignored)
 └── tests/                 # Unit tests
+```
 
 ## Setup
 
