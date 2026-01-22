@@ -24,6 +24,16 @@ def list_test_runs():
     if request.args.get('result'):
         filters['result'] = request.args.get('result')
 
+    # Sort parameters
+    if request.args.get('sort_by'):
+        filters['sort_by'] = request.args.get('sort_by')
+    if request.args.get('sort_order'):
+        filters['sort_order'] = request.args.get('sort_order')
+
+    # Show incomplete runs toggle
+    if request.args.get('show_incomplete') == 'true':
+        filters['show_incomplete'] = True
+
     page = int(request.args.get('page', 1))
     per_page = int(request.args.get('per_page', 50))
 

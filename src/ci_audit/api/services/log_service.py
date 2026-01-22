@@ -69,8 +69,8 @@ class LogService:
             If successful, returns (content, None)
             If error, returns (None, error_message)
         """
-        # Query build log
-        build_log = self.db.query(BuildLog).filter(BuildLog.build_id == build_id).first()
+        # Query build log via TestRun (BuildLog doesn't have build_id, it has run_id)
+        build_log = self.db.query(BuildLog).join(TestRun).filter(TestRun.build_id == build_id).first()
 
         if not build_log:
             return None, f"Build log not found: {build_id}"

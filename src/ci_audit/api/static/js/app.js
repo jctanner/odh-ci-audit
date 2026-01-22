@@ -8,6 +8,7 @@ class App {
         this.testRunDetail = null;
         this.logViewer = null;
         this.queueManager = null;
+        this.timelineChart = null;
         this.loadingFromHash = false;
     }
 
@@ -183,6 +184,11 @@ class App {
             const stats = await api.getStats();
 
             container.innerHTML = `
+                <h2>Success/Failure Over Time (Last 30 Days)</h2>
+                <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 40px;">
+                    <canvas id="timeline-chart"></canvas>
+                </div>
+
                 <h2>Test Runs</h2>
                 <div class="queue-stats">
                     <div class="stat-card">
@@ -235,12 +241,90 @@ class App {
                     </div>
                 </div>
             `;
+
+            // Render the timeline chart
+            await this.renderTimelineChart();
         } catch (error) {
             container.innerHTML = `
                 <div class="message message-error">
                     Error loading statistics: ${error.message}
                 </div>
             `;
+        }
+    }
+
+    async renderTimelineChart() {
+        try {
+            const timelineData = await api.getTimeline(30);
+            const ctx = document.getElementById('timeline-chart');
+
+            // Destroy existing chart if it exists
+            if (this.timelineChart) {
+                this.timelineChart.destroy();
+            }
+
+            // Create new chart
+            this.timelineChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: timelineData.dates,
+                    datasets: [
+                        {
+                            label: 'Success',
+                            data: timelineData.success,
+                            borderColor: '#10b981',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            fill: true,
+                            tension: 0.3
+                        },
+                        {
+                            label: 'Failure',
+                            data: timelineData.failure,
+                            borderColor: '#ef4444',
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            fill: true,
+                            tension: 0.3
+                        },
+                        {
+                            label: 'Aborted',
+                            data: timelineData.aborted,
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            fill: true,
+                            tension: 0.3
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 2.5,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        title: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error rendering timeline chart:', error);
         }
     }
 }

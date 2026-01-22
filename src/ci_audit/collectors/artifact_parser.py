@@ -130,9 +130,14 @@ class ProwMetadataParser:
         try:
             data = json.loads(json_content)
 
+            # Normalize result to uppercase for consistency
+            result = data.get("result", "UNKNOWN")
+            if result:
+                result = result.upper()
+
             return {
                 "timestamp": datetime.fromtimestamp(data.get("timestamp", 0)),
-                "result": data.get("result", "UNKNOWN"),
+                "result": result,
                 "passed": data.get("passed", False),
                 "revision": data.get("revision"),
             }

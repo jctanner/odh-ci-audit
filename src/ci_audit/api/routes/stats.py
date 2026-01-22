@@ -1,7 +1,8 @@
 """API routes for statistics."""
 
-from flask import Blueprint, jsonify
-from sqlalchemy import func
+from datetime import datetime, timezone
+from flask import Blueprint, jsonify, request
+from sqlalchemy import func, case
 
 from ci_audit.api import get_db_session
 from ci_audit.database.models import TestRun, PullRequest, TestCase
@@ -70,3 +71,48 @@ def get_overview():
             'skipped': skipped_tests
         }
     })
+
+
+@bp.route('/timeline', methods=['GET'])
+def get_timeline():
+    """Get test run results over time (daily aggregation)."""
+    db = get_db_session()
+
+    # Optional date range filters
+    days = request.args.get('days', default=30, type=int)
+
+    # Calculate the cutoff date
+    from datetime import timedelta
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Query test runs grouped by date
+    # Use func.date() to truncate to date, then count by result
+    results = db.query(
+        func.date(TestRun.started_at).label('date'),
+        func.sum(case((TestRun.result == 'SUCCESS', 1), else_=0)).label('success'),
+        func.sum(case((TestRun.result == 'FAILURE', 1), else_=0)).label('failure'),
+        func.sum(case((TestRun.result == 'ABORTED', 1), else_=0)).label('aborted')
+    ).filter(
+        TestRun.started_at.isnot(None),
+        TestRun.started_at >= cutoff_date
+    ).group_by(
+        func.date(TestRun.started_at)
+    ).order_by(
+        func.date(TestRun.started_at)
+    ).all()
+
+    # Format the results for the frontend
+    timeline_data = {
+        'dates': [],
+        'success': [],
+        'failure': [],
+        'aborted': []
+    }
+
+    for row in results:
+        timeline_data['dates'].append(row.date.isoformat() if row.date else None)
+        timeline_data['success'].append(int(row.success or 0))
+        timeline_data['failure'].append(int(row.failure or 0))
+        timeline_data['aborted'].append(int(row.aborted or 0))
+
+    return jsonify(timeline_data)

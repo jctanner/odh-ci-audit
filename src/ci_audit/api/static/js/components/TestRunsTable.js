@@ -9,6 +9,7 @@ class TestRunsTable {
         this.perPage = 50;
         this.sortColumn = 'started_at';
         this.sortDirection = 'desc'; // 'asc' or 'desc'
+        this.showIncomplete = false;
     }
 
     async render() {
@@ -38,11 +39,21 @@ class TestRunsTable {
                             <option value="SUCCESS">Success</option>
                             <option value="FAILURE">Failure</option>
                             <option value="ABORTED">Aborted</option>
+                            <option value="PENDING">Pending</option>
+                            <option value="ERROR">Error</option>
                         </select>
                     </div>
                     <div class="filter-group">
                         <label>&nbsp;</label>
                         <button id="apply-filters">Apply Filters</button>
+                    </div>
+                </div>
+                <div class="filter-row" style="margin-top: 10px;">
+                    <div class="filter-group">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="show-incomplete" style="margin-right: 8px;">
+                            Show incomplete runs (missing start time)
+                        </label>
                     </div>
                 </div>
             </div>
@@ -56,6 +67,13 @@ class TestRunsTable {
 
         // Attach event listeners
         document.getElementById('apply-filters').addEventListener('click', () => this.applyFilters());
+
+        // Add checkbox listener
+        document.getElementById('show-incomplete').addEventListener('change', (e) => {
+            this.showIncomplete = e.target.checked;
+            this.currentPage = 1;
+            this.loadTestRuns();
+        });
 
         // Add enter key support for inputs
         ['filter-repo-owner', 'filter-repo-name', 'filter-pr-number', 'filter-job-name'].forEach(id => {
@@ -113,11 +131,12 @@ class TestRunsTable {
         `;
 
         try {
-            // Add sort parameters to filters
+            // Add sort and display parameters to filters
             const filtersWithSort = {
                 ...this.filters,
                 sort_by: this.sortColumn,
-                sort_order: this.sortDirection
+                sort_order: this.sortDirection,
+                show_incomplete: this.showIncomplete ? 'true' : 'false'
             };
 
             const data = await api.getTestRuns(filtersWithSort, this.currentPage, this.perPage);
@@ -225,6 +244,8 @@ class TestRunsTable {
             case 'SUCCESS': return 'status-success';
             case 'FAILURE': return 'status-failure';
             case 'ABORTED': return 'status-aborted';
+            case 'ERROR': return 'status-failure'; // Treat ERROR like FAILURE
+            case 'PENDING': return 'status-pending';
             default: return '';
         }
     }

@@ -36,6 +36,11 @@ class TestRunService:
         # Build base query with join to pull_requests
         query = self.db.query(TestRun).join(PullRequest)
 
+        # Filter out incomplete runs by default (those without started_at)
+        show_incomplete = filters.get('show_incomplete', False)
+        if not show_incomplete:
+            query = query.filter(TestRun.started_at.isnot(None))
+
         # Apply filters
         if 'repo_owner' in filters and filters['repo_owner']:
             query = query.filter(PullRequest.repo_owner == filters['repo_owner'])
@@ -135,11 +140,14 @@ class TestRunService:
             TestCase.status == 'skipped'
         ).scalar()
 
+        # Set result to "PENDING" if NULL (job hasn't completed yet)
+        result = test_run.result if test_run.result else "PENDING"
+
         return {
             'build_id': test_run.build_id,
             'pr_number': test_run.pr_number,
             'job_name': test_run.job_name,
-            'result': test_run.result,
+            'result': result,
             'started_at': test_run.started_at.isoformat() if test_run.started_at else None,
             'finished_at': test_run.finished_at.isoformat() if test_run.finished_at else None,
             'duration_seconds': test_run.duration_seconds,
@@ -198,11 +206,15 @@ class TestRunService:
     def _test_run_to_dict(self, test_run: TestRun) -> Dict:
         """Convert TestRun model to dict."""
         pr = test_run.pull_request
+
+        # Set result to "PENDING" if NULL (job hasn't completed yet)
+        result = test_run.result if test_run.result else "PENDING"
+
         return {
             'build_id': test_run.build_id,
             'pr_number': test_run.pr_number,
             'job_name': test_run.job_name,
-            'result': test_run.result,
+            'result': result,
             'started_at': test_run.started_at.isoformat() if test_run.started_at else None,
             'finished_at': test_run.finished_at.isoformat() if test_run.finished_at else None,
             'duration_seconds': test_run.duration_seconds,

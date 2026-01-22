@@ -87,6 +87,10 @@ class APIClient {
     async getStats() {
         return await this.request('/api/stats/overview');
     }
+
+    async getTimeline(days = 30) {
+        return await this.request(`/api/stats/timeline?days=${days}`);
+    }
 }
 
 // Global API client instance
