@@ -20,7 +20,7 @@ class PullRequest(Base):
     created_at = Column(DateTime)
     merged_at = Column(DateTime)
     state = Column(String)
-    labels = Column(JSONB)  # PostgreSQL: JSONB, SQLite: Text
+    labels = Column(JSONB)  # PostgreSQL JSONB for advanced querying
 
     # Relationships
     test_runs = relationship('TestRun', back_populates='pull_request')

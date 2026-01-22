@@ -5,10 +5,11 @@ A Python-based tool for collecting and analyzing e2e/CI test data from the opend
 ## Features
 
 - **Data Collection**: Automatically collects PR metadata from GitHub and test results from Prow/GCS
-- **Comprehensive Storage**: SQLite database storing PRs, test runs, test cases, and build logs
+- **Comprehensive Storage**: PostgreSQL database storing PRs, test runs, test cases, and build logs
 - **Intelligent Parsing**: Extracts data from junit XML, Prow JSON metadata, and build logs
 - **Incremental Collection**: Resume capability with state tracking
 - **Rate Limiting**: Respects GitHub and GCS API rate limits
+- **Parallel Processing**: Multi-worker architecture for efficient data collection
 
 ## Project Structure
 
@@ -30,54 +31,74 @@ ci_audit/
 
 ## Setup
 
-### 1. Install Dependencies
+### Prerequisites
 
-```bash
-cd ci_audit
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-```
+- podman and podman-compose installed
+- GitHub Personal Access Token (create at https://github.com/settings/tokens with `public_repo` scope)
 
-### 2. Configure
+### 1. Configure
 
 ```bash
 # Copy example configuration (keep ${GITHUB_TOKEN} placeholder as-is)
 cp config/config.yaml.example config/config.yaml
 
-# Create .env file and add your GitHub token
+# Create .env file and add your GitHub token and database password
 cp .env.example .env
-# Edit .env and replace with your actual token:
+# Edit .env and set:
 # GITHUB_TOKEN=ghp_your_actual_token_here
+# POSTGRES_PASSWORD=strong_password_here
 ```
 
 **Important**: The `config.yaml` file uses `${GITHUB_TOKEN}` which automatically gets replaced with the value from your `.env` file. Don't edit the config.yaml to add your token directly - just put it in `.env`.
 
-Create a GitHub Personal Access Token at https://github.com/settings/tokens with `public_repo` scope.
-
-### 3. Run Collection
+### 2. Build and Start Services
 
 ```bash
-# Collect all data from last year (as configured)
-python scripts/collect.py
+# Build application container
+podman build -t ci-audit-app -f Containerfile .
 
-# Specify custom date range
-python scripts/collect.py --start-date 2025-10-01 --end-date 2025-12-31
+# Start PostgreSQL
+podman-compose up -d postgres
 
-# Use custom config file
-python scripts/collect.py --config path/to/config.yaml
+# Wait for PostgreSQL to be ready
+podman exec ci-audit-postgres pg_isready -U ci_audit
+```
+
+### 3. Populate Work Queue
+
+```bash
+# Populate queue from GitHub PRs
+podman-compose up producer
+
+# Or with custom date range
+podman-compose run --rm producer python3 scripts/producer.py \
+  --start-date 2025-10-01 --end-date 2025-12-31
+```
+
+### 4. Start Workers
+
+```bash
+# Start all 5 workers to process the queue
+podman-compose up -d worker1 worker2 worker3 worker4 worker5
+
+# Monitor progress
+podman-compose logs -f --tail=20
 ```
 
 ## Database Schema
 
-The system uses SQLite with the following main tables:
+The system uses PostgreSQL with the following main tables:
 
-- **pull_requests**: GitHub PR metadata
-- **test_runs**: Prow test executions (one per build_id)
+- **pull_requests**: GitHub PR metadata (with JSONB for labels and metadata)
+- **test_runs**: Prow test executions (one per build_id, with JSONB for prowjob metadata)
 - **test_cases**: Individual junit test results
 - **build_logs**: Console output and error lines
+- **pr_comments**: PR comments and reviews
 - **failure_patterns**: Computed failure signatures (future)
+- **work_queue**: Worker coordination and claim management
 - **collection_state**: Resume state tracking
+
+See [Database Schema Documentation](docs/setup/database-schema.md) for complete details.
 
 ## Data Sources
 
@@ -94,13 +115,14 @@ The system uses SQLite with the following main tables:
 
 ## Configuration
 
-Edit `config/config.yaml` to customize:
+Edit `config/config.yaml` and `.env` to customize:
 
-- **GitHub**: Repository, token, rate limits
-- **GCS**: Bucket, paths, job name
-- **Collection**: Date range, workers, retry settings
-- **Database**: Path, SQL echo
+- **GitHub**: Repository, token (in .env), rate limits
+- **GCS**: Bucket, paths, job name pattern
+- **Collection**: Date range, retry settings
+- **Database**: PostgreSQL connection (password in .env)
 - **Logging**: Level, format, file
+- **Workers**: Concurrency, claim timeout
 
 ## Development
 
@@ -130,10 +152,11 @@ The codebase is modular:
 - Bucket is public, no authentication required
 - If downloads fail, check network and GCS availability
 
-### Database Locks
-- SQLite has limited concurrency
-- Use single collection process
-- For concurrent access, consider PostgreSQL
+### Worker Management
+- Monitor worker health: `podman ps | grep ci-audit-worker`
+- View logs: `podman-compose logs -f worker1`
+- Restart workers: `podman-compose restart worker1`
+- Scale workers up/down as needed
 
 ## Future Enhancements
 
@@ -142,7 +165,6 @@ The codebase is modular:
 - Interactive query interface
 - Report generation
 - Visualization dashboards
-- Parallel collection optimization
 
 ## License
 
