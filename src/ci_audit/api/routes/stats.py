@@ -116,3 +116,50 @@ def get_timeline():
         timeline_data['aborted'].append(int(row.aborted or 0))
 
     return jsonify(timeline_data)
+
+
+@bp.route('/duration', methods=['GET'])
+def get_duration():
+    """Get test run durations over time (daily aggregation in hours)."""
+    db = get_db_session()
+
+    # Optional date range filters
+    days = request.args.get('days', default=30, type=int)
+
+    # Calculate the cutoff date
+    from datetime import timedelta
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Query test runs grouped by date, summing duration by result
+    # Convert seconds to hours (divide by 3600)
+    results = db.query(
+        func.date(TestRun.started_at).label('date'),
+        func.sum(case((TestRun.result == 'SUCCESS', TestRun.duration_seconds), else_=0)).label('success_seconds'),
+        func.sum(case((TestRun.result == 'FAILURE', TestRun.duration_seconds), else_=0)).label('failure_seconds'),
+        func.sum(case((TestRun.result == 'ABORTED', TestRun.duration_seconds), else_=0)).label('aborted_seconds')
+    ).filter(
+        TestRun.started_at.isnot(None),
+        TestRun.started_at >= cutoff_date,
+        TestRun.duration_seconds.isnot(None)
+    ).group_by(
+        func.date(TestRun.started_at)
+    ).order_by(
+        func.date(TestRun.started_at)
+    ).all()
+
+    # Format the results for the frontend (convert to hours)
+    duration_data = {
+        'dates': [],
+        'success_hours': [],
+        'failure_hours': [],
+        'aborted_hours': []
+    }
+
+    for row in results:
+        duration_data['dates'].append(row.date.isoformat() if row.date else None)
+        # Convert seconds to hours and round to 2 decimal places
+        duration_data['success_hours'].append(round((row.success_seconds or 0) / 3600, 2))
+        duration_data['failure_hours'].append(round((row.failure_seconds or 0) / 3600, 2))
+        duration_data['aborted_hours'].append(round((row.aborted_seconds or 0) / 3600, 2))
+
+    return jsonify(duration_data)

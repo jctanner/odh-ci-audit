@@ -447,6 +447,32 @@ tr.clickable:hover {
     background: #c82333;
 }
 
+/* Timeline range selector */
+.timeline-range-selector {
+    display: flex;
+    gap: 8px;
+}
+
+.range-button {
+    padding: 8px 16px;
+    background: white;
+    color: #667eea;
+    border: 2px solid #667eea;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.range-button:hover {
+    background: #f0f4ff;
+}
+
+.range-button.active {
+    background: #667eea;
+    color: white;
+}
+
 /* Loading spinner */
 .loading {
     text-align: center;

@@ -9,6 +9,8 @@ class App {
         this.logViewer = null;
         this.queueManager = null;
         this.timelineChart = null;
+        this.durationChart = null;
+        this.timelineDays = 30; // Default to 30 days
         this.loadingFromHash = false;
     }
 
@@ -183,10 +185,27 @@ class App {
         try {
             const stats = await api.getStats();
 
+            const timeRangeLabel = this.timelineDays === 30 ? 'Last Month' :
+                                   this.timelineDays === 90 ? 'Last 3 Months' :
+                                   this.timelineDays === 180 ? 'Last 6 Months' :
+                                   `Last ${this.timelineDays} Days`;
+
             container.innerHTML = `
-                <h2>Success/Failure Over Time (Last 30 Days)</h2>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <h2>Success/Failure Over Time (${timeRangeLabel})</h2>
+                    <div class="timeline-range-selector">
+                        <button class="range-button ${this.timelineDays === 30 ? 'active' : ''}" onclick="app.setTimelineRange(30)">1 Month</button>
+                        <button class="range-button ${this.timelineDays === 90 ? 'active' : ''}" onclick="app.setTimelineRange(90)">3 Months</button>
+                        <button class="range-button ${this.timelineDays === 180 ? 'active' : ''}" onclick="app.setTimelineRange(180)">6 Months</button>
+                    </div>
+                </div>
                 <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 40px;">
                     <canvas id="timeline-chart"></canvas>
+                </div>
+
+                <h2 style="margin-top: 40px;">Total Test Duration (Hours)</h2>
+                <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 40px;">
+                    <canvas id="duration-chart"></canvas>
                 </div>
 
                 <h2>Test Runs</h2>
@@ -242,8 +261,9 @@ class App {
                 </div>
             `;
 
-            // Render the timeline chart
+            // Render the charts
             await this.renderTimelineChart();
+            await this.renderDurationChart();
         } catch (error) {
             container.innerHTML = `
                 <div class="message message-error">
@@ -255,7 +275,7 @@ class App {
 
     async renderTimelineChart() {
         try {
-            const timelineData = await api.getTimeline(30);
+            const timelineData = await api.getTimeline(this.timelineDays);
             const ctx = document.getElementById('timeline-chart');
 
             // Destroy existing chart if it exists
@@ -326,6 +346,111 @@ class App {
         } catch (error) {
             console.error('Error rendering timeline chart:', error);
         }
+    }
+
+    async renderDurationChart() {
+        try {
+            const durationData = await api.getDuration(this.timelineDays);
+            const ctx = document.getElementById('duration-chart');
+
+            // Destroy existing chart if it exists
+            if (this.durationChart) {
+                this.durationChart.destroy();
+            }
+
+            // Create new stacked bar chart
+            this.durationChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: durationData.dates,
+                    datasets: [
+                        {
+                            label: 'Success',
+                            data: durationData.success_hours,
+                            backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                            borderColor: '#10b981',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Failure',
+                            data: durationData.failure_hours,
+                            backgroundColor: 'rgba(239, 68, 68, 0.8)',
+                            borderColor: '#ef4444',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Aborted',
+                            data: durationData.aborted_hours,
+                            backgroundColor: 'rgba(245, 158, 11, 0.8)',
+                            borderColor: '#f59e0b',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 2.5,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        title: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                footer: function(tooltipItems) {
+                                    let total = 0;
+                                    tooltipItems.forEach(item => {
+                                        total += item.parsed.y;
+                                    });
+                                    return 'Total: ' + total.toFixed(2) + ' hours';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        },
+                        y: {
+                            stacked: true,
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Hours'
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error rendering duration chart:', error);
+        }
+    }
+
+    async setTimelineRange(days) {
+        this.timelineDays = days;
+        await this.renderTimelineChart();
+        await this.renderDurationChart();
+
+        // Update button states
+        document.querySelectorAll('.range-button').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        event.target.classList.add('active');
+
+        // Update title
+        const timeRangeLabel = days === 30 ? 'Last Month' :
+                               days === 90 ? 'Last 3 Months' :
+                               days === 180 ? 'Last 6 Months' :
+                               `Last ${days} Days`;
+        document.querySelector('#stats-view h2').textContent = `Success/Failure Over Time (${timeRangeLabel})`;
     }
 }
 
