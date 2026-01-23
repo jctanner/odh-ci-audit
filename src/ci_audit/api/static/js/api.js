@@ -84,6 +84,12 @@ class APIClient {
         });
     }
 
+    async collectNewPRs() {
+        return await this.request('/api/queue/collect-new-prs', {
+            method: 'POST'
+        });
+    }
+
     async getStats() {
         return await this.request('/api/stats/overview');
     }

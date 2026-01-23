@@ -97,6 +97,12 @@ class QueueManager {
                 <button class="submit-button" onclick="queueManager.triggerCollection()">Add to Queue</button>
             </div>
 
+            <div class="trigger-form" style="margin-top: 20px;">
+                <h3>Collect New PRs from GitHub</h3>
+                <p>Fetch recent PRs from GitHub (from last collected PR to today) and add them to the queue.</p>
+                <button class="submit-button" onclick="queueManager.collectNewPRs()">Collect New PRs</button>
+            </div>
+
             ${stats.failed > 0 ? `
                 <div class="trigger-form" style="margin-top: 20px;">
                     <h3>Reset Failed Items</h3>
@@ -237,6 +243,48 @@ class QueueManager {
             messageDiv.innerHTML = `
                 <div class="message message-success">
                     ${result.message}
+                </div>
+            `;
+
+            // Reload queue stats
+            setTimeout(() => this.render(), 1000);
+        } catch (error) {
+            messageDiv.innerHTML = `
+                <div class="message message-error">
+                    Error: ${error.message}
+                </div>
+            `;
+        }
+    }
+
+    async collectNewPRs() {
+        const messageDiv = document.getElementById('queue-message');
+
+        messageDiv.innerHTML = `
+            <div class="message message-info">
+                Fetching new PRs from GitHub... This may take a moment.
+            </div>
+        `;
+
+        try {
+            const result = await api.collectNewPRs();
+
+            if (result.status === 'error') {
+                messageDiv.innerHTML = `
+                    <div class="message message-error">
+                        ${result.message}
+                    </div>
+                `;
+                return;
+            }
+
+            const prList = result.pr_numbers && result.pr_numbers.length > 0
+                ? `<br><strong>PR numbers:</strong> ${result.pr_numbers.join(', ')}`
+                : '';
+
+            messageDiv.innerHTML = `
+                <div class="message message-success">
+                    ${result.message}${prList}
                 </div>
             `;
 

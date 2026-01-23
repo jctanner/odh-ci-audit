@@ -1,11 +1,13 @@
 """Service layer for work queue operations."""
 
 from typing import Dict
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ci_audit.database.models import WorkQueue
+from ci_audit.database.models import WorkQueue, PullRequest
+from ci_audit.config import Config
+from ci_audit.collectors.github_collector import GitHubCollector
 
 
 class QueueService:
@@ -174,3 +176,100 @@ class QueueService:
             'status': 'success',
             'message': f'Reset {count} completed items to pending'
         }
+
+    def collect_new_prs(self) -> Dict:
+        """
+        Collect new PRs from GitHub since the last PR in the database.
+
+        Returns:
+            Dict with status, count of PRs added, and date range
+        """
+        try:
+            # Load config
+            config = Config('config/config.yaml')
+
+            # Get the most recent PR creation date from the database
+            latest_pr = self.db.query(PullRequest).order_by(
+                PullRequest.created_at.desc()
+            ).first()
+
+            if latest_pr and latest_pr.created_at:
+                # Start from the day after the latest PR (to avoid duplicates)
+                # Database datetimes are naive (no timezone), so add UTC timezone
+                start_date = latest_pr.created_at.replace(tzinfo=timezone.utc)
+            else:
+                # No PRs in database, use a default starting point (30 days ago)
+                start_date = datetime.now(timezone.utc) - timedelta(days=30)
+
+            # End date is today
+            end_date = datetime.now(timezone.utc)
+
+            # Initialize GitHub collector
+            github_collector = GitHubCollector(
+                token=config.github_token,
+                repo_owner=config.github_repo_owner,
+                repo_name=config.github_repo_name
+            )
+
+            # Fetch PRs from GitHub
+            prs = github_collector.get_prs_in_date_range(
+                start_date,
+                end_date,
+                state='all'  # Get both open and closed PRs
+            )
+
+            if not prs:
+                return {
+                    'status': 'success',
+                    'message': 'No new PRs found',
+                    'count': 0,
+                    'start_date': start_date.isoformat(),
+                    'end_date': end_date.isoformat()
+                }
+
+            # Add PRs to the work queue (skip duplicates)
+            added_count = 0
+            skipped_count = 0
+
+            for pr in prs:
+                # Check if already in queue
+                existing = self.db.query(WorkQueue).filter(
+                    WorkQueue.pr_number == pr.number,
+                    WorkQueue.repo_owner == config.github_repo_owner,
+                    WorkQueue.repo_name == config.github_repo_name
+                ).first()
+
+                if existing:
+                    skipped_count += 1
+                    continue
+
+                # Add to queue
+                work_item = WorkQueue(
+                    pr_number=pr.number,
+                    repo_owner=config.github_repo_owner,
+                    repo_name=config.github_repo_name,
+                    status='pending',
+                    attempt_count=0,
+                    priority=0
+                )
+                self.db.add(work_item)
+                added_count += 1
+
+            self.db.commit()
+
+            return {
+                'status': 'success',
+                'message': f'Added {added_count} new PRs to queue ({skipped_count} already exist)',
+                'count': added_count,
+                'skipped': skipped_count,
+                'start_date': start_date.isoformat(),
+                'end_date': end_date.isoformat(),
+                'pr_numbers': [pr.number for pr in prs]
+            }
+
+        except Exception as e:
+            self.db.rollback()
+            return {
+                'status': 'error',
+                'message': f'Failed to collect new PRs: {str(e)}'
+            }

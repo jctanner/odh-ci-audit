@@ -62,3 +62,13 @@ def reset_completed():
     result = service.reset_completed()
 
     return jsonify(result)
+
+
+@bp.route('/collect-new-prs', methods=['POST'])
+def collect_new_prs():
+    """Collect new PRs from GitHub (from last PR date to today)."""
+    db = get_db_session()
+    service = QueueService(db)
+    result = service.collect_new_prs()
+
+    return jsonify(result)
