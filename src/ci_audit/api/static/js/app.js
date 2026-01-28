@@ -15,6 +15,7 @@ class App {
         this.failureSuiteChart = null;
         this.topFailingTestsChart = null;
         this.failureTimelineChart = null;
+        this.failuresByJobTypeChart = null;
         this.timelineDays = 30; // Default to 30 days
         this.loadingFromHash = false;
     }
@@ -325,6 +326,11 @@ class App {
                 <canvas id="failure-timeline-chart"></canvas>
             </div>
 
+            <h2 style="margin-bottom: 10px;">Failures by Job Type - ODH vs RHOAI vs Hypershift (${timeRangeLabel})</h2>
+            <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 40px;">
+                <canvas id="failures-by-job-type-chart"></canvas>
+            </div>
+
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 40px;">
                 <div>
                     <h2>Failures by Test Suite</h2>
@@ -343,6 +349,7 @@ class App {
 
         // Render the failure analysis charts
         await this.renderFailureTimelineChart();
+        await this.renderFailuresByJobTypeChart();
         await this.renderFailureSuiteChart();
         await this.renderTopFailingTestsChart();
     }
@@ -609,20 +616,13 @@ class App {
     async setTimelineRange(days) {
         this.timelineDays = days;
 
-        // Update charts based on active tab
+        // Re-render the appropriate tab to update headings and charts
         if (this.currentStatsTab === 'overview') {
-            await this.renderTimelineChart();
-            await this.renderDurationChart();
-            await this.renderPRMetricsChart();
+            const stats = await api.getStats();
+            await this.renderOverviewTab(stats);
         } else if (this.currentStatsTab === 'failures') {
-            await this.renderFailureTimelineChart();
+            await this.renderFailuresTab();
         }
-
-        // Update button states
-        document.querySelectorAll('.range-button').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        event.target.classList.add('active');
     }
 
     async renderFailureTimelineChart() {
@@ -759,6 +759,90 @@ class App {
             });
         } catch (error) {
             console.error('Error rendering top failing tests chart:', error);
+        }
+    }
+
+    async renderFailuresByJobTypeChart() {
+        try {
+            const data = await api.getFailuresByJobType(this.timelineDays);
+
+            // Destroy existing chart if it exists
+            if (this.failuresByJobTypeChart) {
+                this.failuresByJobTypeChart.destroy();
+            }
+
+            const ctx = document.getElementById('failures-by-job-type-chart');
+            this.failuresByJobTypeChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.dates,
+                    datasets: [
+                        {
+                            label: 'ODH E2E',
+                            data: data.odh,
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'RHOAI E2E',
+                            data: data.rhoai,
+                            borderColor: '#fa709a',
+                            backgroundColor: 'rgba(250, 112, 154, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Hypershift E2E',
+                            data: data.hypershift,
+                            borderColor: '#43e97b',
+                            backgroundColor: 'rgba(67, 233, 123, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 3,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        tooltip: {
+                            callbacks: {
+                                footer: function(tooltipItems) {
+                                    let total = 0;
+                                    tooltipItems.forEach(item => {
+                                        total += item.parsed.y;
+                                    });
+                                    return 'Total: ' + total;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            stacked: false
+                        },
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error rendering failures by job type chart:', error);
         }
     }
 }

@@ -135,6 +135,10 @@ class APIClient {
     async getFailureTimeline(days = 30) {
         return await this.request(`/api/stats/failure-timeline?days=${days}`);
     }
+
+    async getFailuresByJobType(days = 30) {
+        return await this.request(`/api/stats/failures-by-job-type?days=${days}`);
+    }
 }
 
 // Global API client instance

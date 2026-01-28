@@ -337,3 +337,67 @@ def get_failure_timeline():
     }
 
     return jsonify(timeline_data)
+
+
+@bp.route('/failures-by-job-type', methods=['GET'])
+def get_failures_by_job_type():
+    """Get failed test cases over time grouped by job type (ODH/RHOAI/Hypershift)."""
+    db = get_db_session()
+
+    # Optional date range filters
+    days = request.args.get('days', default=30, type=int)
+
+    # Calculate the cutoff date
+    from datetime import timedelta
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Query test cases with job_name, joined with test runs to get dates
+    results = db.query(
+        func.date(TestRun.started_at).label('date'),
+        TestRun.job_name,
+        func.count(TestCase.id).label('failed_tests')
+    ).join(
+        TestCase, TestCase.run_id == TestRun.id
+    ).filter(
+        TestRun.started_at.isnot(None),
+        TestRun.started_at >= cutoff_date,
+        TestCase.status == 'failed'
+    ).group_by(
+        func.date(TestRun.started_at),
+        TestRun.job_name
+    ).order_by(
+        func.date(TestRun.started_at)
+    ).all()
+
+    # Categorize job names into ODH, RHOAI, Hypershift
+    from collections import defaultdict
+    daily_data = defaultdict(lambda: {'odh': 0, 'rhoai': 0, 'hypershift': 0})
+
+    for row in results:
+        date_str = row.date.isoformat() if row.date else None
+        if not date_str:
+            continue
+
+        job_name = row.job_name.lower()
+        count = int(row.failed_tests)
+
+        # Categorize based on job name
+        if 'rhoai' in job_name:
+            daily_data[date_str]['rhoai'] += count
+        elif 'hypershift' in job_name:
+            daily_data[date_str]['hypershift'] += count
+        else:
+            # Default to ODH (includes regular e2e, bundle, images, etc.)
+            daily_data[date_str]['odh'] += count
+
+    # Sort by date and format response
+    sorted_dates = sorted(daily_data.keys())
+
+    job_type_data = {
+        'dates': sorted_dates,
+        'odh': [daily_data[date]['odh'] for date in sorted_dates],
+        'rhoai': [daily_data[date]['rhoai'] for date in sorted_dates],
+        'hypershift': [daily_data[date]['hypershift'] for date in sorted_dates]
+    }
+
+    return jsonify(job_type_data)
