@@ -75,6 +75,36 @@ header .subtitle {
     display: block;
 }
 
+/* Stats sub-tabs */
+.stats-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 30px;
+    border-bottom: 2px solid #e0e0e0;
+    padding-bottom: 10px;
+}
+
+.stats-tab-button {
+    padding: 10px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s;
+    color: #666;
+}
+
+.stats-tab-button:hover {
+    color: #667eea;
+}
+
+.stats-tab-button.active {
+    color: #667eea;
+    border-bottom-color: #667eea;
+}
+
 @keyframes fadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
@@ -255,6 +285,11 @@ tr.clickable:hover {
 .status-failed {
     background: #f8d7da;
     color: #721c24;
+}
+
+.status-warning {
+    background: #fff3cd;
+    color: #856404;
 }
 
 /* Detail view */
@@ -518,6 +553,12 @@ tr.clickable:hover {
     background: #d1ecf1;
     color: #0c5460;
     border: 1px solid #bee5eb;
+}
+
+.message-warning {
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeaa7;
 }
 
 /* Pagination */

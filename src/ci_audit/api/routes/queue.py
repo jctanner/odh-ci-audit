@@ -20,7 +20,7 @@ def get_stats():
 
 @bp.route('/trigger', methods=['POST'])
 def trigger_collection():
-    """Trigger collection for a PR."""
+    """Trigger collection for one or more PRs (comma-separated)."""
     data = request.get_json()
 
     # Validate required fields
@@ -36,12 +36,46 @@ def trigger_collection():
 
     force = data.get('force', False)
 
-    # Trigger collection
+    # Parse PR numbers (can be single int or comma-separated string)
+    pr_numbers = []
+    if isinstance(pr_number, int):
+        pr_numbers = [pr_number]
+    elif isinstance(pr_number, str):
+        # Split by comma and strip whitespace
+        pr_numbers = [int(num.strip()) for num in pr_number.split(',') if num.strip()]
+    else:
+        return jsonify({'error': 'pr_number must be an integer or comma-separated string'}), 400
+
+    if not pr_numbers:
+        return jsonify({'error': 'No valid PR numbers provided'}), 400
+
+    # Trigger collection for each PR
     db = get_db_session()
     service = QueueService(db)
-    result = service.trigger_collection(pr_number, repo_owner, repo_name, force)
 
-    return jsonify(result)
+    results = []
+    for num in pr_numbers:
+        result = service.trigger_collection(num, repo_owner, repo_name, force)
+        results.append({
+            'pr_number': num,
+            'status': result.get('status'),
+            'message': result.get('message')
+        })
+
+    # Return summary
+    total = len(results)
+    created = sum(1 for r in results if r['status'] == 'created')
+    reset = sum(1 for r in results if r['status'] == 'reset')
+    skipped = sum(1 for r in results if r['status'] == 'skipped')
+
+    return jsonify({
+        'status': 'success',
+        'total': total,
+        'created': created,
+        'reset': reset,
+        'skipped': skipped,
+        'results': results
+    })
 
 
 @bp.route('/reset-failed', methods=['POST'])
@@ -70,5 +104,19 @@ def collect_new_prs():
     db = get_db_session()
     service = QueueService(db)
     result = service.collect_new_prs()
+
+    return jsonify(result)
+
+
+@bp.route('/validate-pr/<int:pr_number>', methods=['GET'])
+def validate_pr(pr_number):
+    """Validate that we have the latest test runs for a PR."""
+    # Get optional repo owner and name from query parameters
+    repo_owner = request.args.get('repo_owner')
+    repo_name = request.args.get('repo_name')
+
+    db = get_db_session()
+    service = QueueService(db)
+    result = service.validate_pr(pr_number, repo_owner, repo_name)
 
     return jsonify(result)

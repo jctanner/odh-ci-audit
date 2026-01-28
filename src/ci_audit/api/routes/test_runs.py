@@ -71,3 +71,30 @@ def get_test_cases(build_id):
         'build_id': build_id,
         'test_cases': test_cases
     })
+
+
+@bp.route('/<build_id>/summary', methods=['GET'])
+def get_test_run_summary(build_id):
+    """Get aggregated summary for a test run."""
+    db = get_db_session()
+    service = TestRunService(db)
+    summary = service.get_test_run_summary(build_id)
+
+    if not summary:
+        return jsonify({'error': 'Test run not found'}), 404
+
+    return jsonify(summary)
+
+
+@bp.route('/<build_id>/failures', methods=['GET'])
+def get_test_run_failures(build_id):
+    """Get only failed test cases for a test run."""
+    db = get_db_session()
+    service = TestRunService(db)
+    failures = service.get_test_failures(build_id)
+
+    return jsonify({
+        'build_id': build_id,
+        'failed_count': len(failures),
+        'failures': failures
+    })

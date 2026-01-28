@@ -75,7 +75,7 @@ class QueueManager {
 
             <h2 style="margin-top: 40px;">Trigger Collection</h2>
             <div class="trigger-form">
-                <h3>Add PR to Queue</h3>
+                <h3>Add PR(s) to Queue</h3>
                 <div class="form-row">
                     <div class="form-group">
                         <label>Repository Owner</label>
@@ -86,8 +86,8 @@ class QueueManager {
                         <input type="text" id="trigger-repo-name" placeholder="e.g., opendatahub-operator" value="opendatahub-operator">
                     </div>
                     <div class="form-group">
-                        <label>PR Number</label>
-                        <input type="number" id="trigger-pr-number" placeholder="e.g., 3048">
+                        <label>PR Number(s)</label>
+                        <input type="text" id="trigger-pr-number" placeholder="e.g., 3048 or 3048,3049,3050">
                     </div>
                 </div>
                 <div class="checkbox-group" style="margin-bottom: 15px;">
@@ -101,6 +101,27 @@ class QueueManager {
                 <h3>Collect New PRs from GitHub</h3>
                 <p>Fetch recent PRs from GitHub (from last collected PR to today) and add them to the queue.</p>
                 <button class="submit-button" onclick="queueManager.collectNewPRs()">Collect New PRs</button>
+            </div>
+
+            <div class="trigger-form" style="margin-top: 20px;">
+                <h3>Validate PR Collection</h3>
+                <p>Check if we have the latest test runs for a PR by comparing with GCS.</p>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Repository Owner</label>
+                        <input type="text" id="validate-repo-owner" placeholder="e.g., opendatahub-io" value="opendatahub-io">
+                    </div>
+                    <div class="form-group">
+                        <label>Repository Name</label>
+                        <input type="text" id="validate-repo-name" placeholder="e.g., opendatahub-operator" value="opendatahub-operator">
+                    </div>
+                    <div class="form-group">
+                        <label>PR Number</label>
+                        <input type="number" id="validate-pr-number" placeholder="e.g., 3048">
+                    </div>
+                </div>
+                <button class="submit-button" onclick="queueManager.validatePR()">Validate PR</button>
+                <div id="validation-results" style="margin-top: 20px;"></div>
             </div>
 
             ${stats.failed > 0 ? `
@@ -182,15 +203,49 @@ class QueueManager {
         try {
             const result = await api.triggerCollection(prNumber, repoOwner, repoName, force);
 
+            // Build summary message
+            let summaryMessage = `<strong>Total: ${result.total} PR(s)</strong><br>`;
+            if (result.created > 0) summaryMessage += `✓ Created: ${result.created}<br>`;
+            if (result.reset > 0) summaryMessage += `↻ Reset: ${result.reset}<br>`;
+            if (result.skipped > 0) summaryMessage += `⊘ Skipped: ${result.skipped}<br>`;
+
+            // Build detailed results table if multiple PRs
+            let detailsTable = '';
+            if (result.results && result.results.length > 1) {
+                detailsTable = `
+                    <div style="margin-top: 15px;">
+                        <strong>Details:</strong>
+                        <table style="width: 100%; margin-top: 10px; font-size: 0.9em;">
+                            <thead>
+                                <tr>
+                                    <th style="text-align: left; padding: 5px;">PR</th>
+                                    <th style="text-align: left; padding: 5px;">Status</th>
+                                    <th style="text-align: left; padding: 5px;">Message</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${result.results.map(r => `
+                                    <tr>
+                                        <td style="padding: 5px;">#${r.pr_number}</td>
+                                        <td style="padding: 5px;">${r.status}</td>
+                                        <td style="padding: 5px; font-size: 0.85em;">${r.message}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
             messageDiv.innerHTML = `
                 <div class="message message-success">
-                    ${result.message}
+                    ${summaryMessage}
+                    ${detailsTable}
                 </div>
             `;
 
-            // Clear form
+            // Clear only the PR number field (keep repo owner/name for convenience)
             document.getElementById('trigger-pr-number').value = '';
-            document.getElementById('trigger-force').checked = false;
 
             // Reload queue stats after a short delay
             setTimeout(() => this.render(), 1000);
@@ -297,6 +352,112 @@ class QueueManager {
                 </div>
             `;
         }
+    }
+
+    async validatePR() {
+        const repoOwner = document.getElementById('validate-repo-owner').value.trim();
+        const repoName = document.getElementById('validate-repo-name').value.trim();
+        const prNumber = document.getElementById('validate-pr-number').value.trim();
+        const resultsDiv = document.getElementById('validation-results');
+
+        // Validate input
+        if (!repoOwner || !repoName || !prNumber) {
+            resultsDiv.innerHTML = `
+                <div class="message message-error">
+                    Please fill in all fields.
+                </div>
+            `;
+            return;
+        }
+
+        resultsDiv.innerHTML = `
+            <div class="message message-info">
+                Validating ${repoOwner}/${repoName} PR #${prNumber}... This may take a moment.
+            </div>
+        `;
+
+        try {
+            const result = await api.validatePR(prNumber, repoOwner, repoName);
+
+            if (result.status === 'error') {
+                resultsDiv.innerHTML = `
+                    <div class="message message-error">
+                        ${result.message}
+                    </div>
+                `;
+                return;
+            }
+
+            if (result.status === 'not_found') {
+                resultsDiv.innerHTML = `
+                    <div class="message message-warning">
+                        ${result.message}
+                    </div>
+                `;
+                return;
+            }
+
+            // Display validation results
+            const statusClass = result.is_current ? 'message-success' : 'message-warning';
+            const statusIcon = result.is_current ? '✓' : '⚠';
+
+            let jobsTable = '';
+            if (result.jobs && result.jobs.length > 0) {
+                jobsTable = `
+                    <div class="data-table" style="margin-top: 15px;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Job Name</th>
+                                    <th>DB Build</th>
+                                    <th>GCS Build</th>
+                                    <th>Status</th>
+                                    <th>DB Runs</th>
+                                    <th>GCS Builds</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${result.jobs.map(job => this.renderValidationJobRow(job)).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+
+            resultsDiv.innerHTML = `
+                <div class="message ${statusClass}">
+                    <strong>${statusIcon} ${result.message}</strong><br>
+                    <small>
+                        ${result.current_job_types} of ${result.total_job_types} job types are current
+                    </small>
+                </div>
+                ${jobsTable}
+            `;
+        } catch (error) {
+            resultsDiv.innerHTML = `
+                <div class="message message-error">
+                    Error: ${error.message}
+                </div>
+            `;
+        }
+    }
+
+    renderValidationJobRow(job) {
+        const statusClass = job.is_current ? 'status-success' : 'status-warning';
+        const statusText = job.is_current ? 'Current' : 'Outdated';
+        const dbBuild = job.db_latest_build || 'N/A';
+        const gcsBuild = job.gcs_latest_build || 'N/A';
+
+        return `
+            <tr>
+                <td>${job.job_name}</td>
+                <td>${dbBuild}</td>
+                <td>${gcsBuild}</td>
+                <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                <td>${job.db_total_runs || 0}</td>
+                <td>${job.gcs_total_builds || 0}</td>
+            </tr>
+        `;
     }
 
     getStatusClass(status) {

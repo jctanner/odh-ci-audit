@@ -4,12 +4,17 @@
 class App {
     constructor() {
         this.currentTab = 'jobs';
+        this.currentStatsTab = 'overview'; // Track stats sub-tab
         this.testRunsTable = null;
         this.testRunDetail = null;
         this.logViewer = null;
         this.queueManager = null;
         this.timelineChart = null;
         this.durationChart = null;
+        this.prMetricsChart = null;
+        this.failureSuiteChart = null;
+        this.topFailingTestsChart = null;
+        this.failureTimelineChart = null;
         this.timelineDays = 30; // Default to 30 days
         this.loadingFromHash = false;
     }
@@ -185,12 +190,39 @@ class App {
         try {
             const stats = await api.getStats();
 
-            const timeRangeLabel = this.timelineDays === 30 ? 'Last Month' :
-                                   this.timelineDays === 90 ? 'Last 3 Months' :
-                                   this.timelineDays === 180 ? 'Last 6 Months' :
-                                   `Last ${this.timelineDays} Days`;
-
+            // Render stats tabs
             container.innerHTML = `
+                <div class="stats-tabs">
+                    <button class="stats-tab-button ${this.currentStatsTab === 'overview' ? 'active' : ''}" onclick="app.switchStatsTab('overview')">Overview</button>
+                    <button class="stats-tab-button ${this.currentStatsTab === 'failures' ? 'active' : ''}" onclick="app.switchStatsTab('failures')">Failure Analysis</button>
+                </div>
+                <div id="stats-content"></div>
+            `;
+
+            // Render the active tab
+            if (this.currentStatsTab === 'overview') {
+                await this.renderOverviewTab(stats);
+            } else {
+                await this.renderFailuresTab();
+            }
+        } catch (error) {
+            container.innerHTML = `
+                <div class="message message-error">
+                    Error loading statistics: ${error.message}
+                </div>
+            `;
+        }
+    }
+
+    async renderOverviewTab(stats) {
+        const container = document.getElementById('stats-content');
+
+        const timeRangeLabel = this.timelineDays === 30 ? 'Last Month' :
+                               this.timelineDays === 90 ? 'Last 3 Months' :
+                               this.timelineDays === 180 ? 'Last 6 Months' :
+                               `Last ${this.timelineDays} Days`;
+
+        container.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                     <h2>Success/Failure Over Time (${timeRangeLabel})</h2>
                     <div class="timeline-range-selector">
@@ -206,6 +238,11 @@ class App {
                 <h2 style="margin-top: 40px;">Total Test Duration (Hours)</h2>
                 <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 40px;">
                     <canvas id="duration-chart"></canvas>
+                </div>
+
+                <h2 style="margin-top: 40px;">PR Metrics (Avg Runs per PR & Wait Time)</h2>
+                <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 40px;">
+                    <canvas id="pr-metrics-chart"></canvas>
                 </div>
 
                 <h2>Test Runs</h2>
@@ -259,18 +296,60 @@ class App {
                         <div class="label">Skipped</div>
                     </div>
                 </div>
-            `;
+        `;
 
-            // Render the charts
-            await this.renderTimelineChart();
-            await this.renderDurationChart();
-        } catch (error) {
-            container.innerHTML = `
-                <div class="message message-error">
-                    Error loading statistics: ${error.message}
+        // Render the charts
+        await this.renderTimelineChart();
+        await this.renderDurationChart();
+        await this.renderPRMetricsChart();
+    }
+
+    async renderFailuresTab() {
+        const container = document.getElementById('stats-content');
+
+        const timeRangeLabel = this.timelineDays === 30 ? 'Last Month' :
+                               this.timelineDays === 90 ? 'Last 3 Months' :
+                               this.timelineDays === 180 ? 'Last 6 Months' :
+                               `Last ${this.timelineDays} Days`;
+
+        container.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h2>Failure Trends Over Time (${timeRangeLabel})</h2>
+                <div class="timeline-range-selector">
+                    <button class="range-button ${this.timelineDays === 30 ? 'active' : ''}" onclick="app.setTimelineRange(30)">1 Month</button>
+                    <button class="range-button ${this.timelineDays === 90 ? 'active' : ''}" onclick="app.setTimelineRange(90)">3 Months</button>
+                    <button class="range-button ${this.timelineDays === 180 ? 'active' : ''}" onclick="app.setTimelineRange(180)">6 Months</button>
                 </div>
-            `;
-        }
+            </div>
+            <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 40px;">
+                <canvas id="failure-timeline-chart"></canvas>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 40px;">
+                <div>
+                    <h2>Failures by Test Suite</h2>
+                    <div style="background: white; padding: 20px; border-radius: 8px;">
+                        <canvas id="failure-suite-chart"></canvas>
+                    </div>
+                </div>
+                <div>
+                    <h2>Top 10 Failing Tests</h2>
+                    <div style="background: white; padding: 20px; border-radius: 8px;">
+                        <canvas id="top-failing-tests-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Render the failure analysis charts
+        await this.renderFailureTimelineChart();
+        await this.renderFailureSuiteChart();
+        await this.renderTopFailingTestsChart();
+    }
+
+    switchStatsTab(tab) {
+        this.currentStatsTab = tab;
+        this.showStats();
     }
 
     async renderTimelineChart() {
@@ -434,23 +513,253 @@ class App {
         }
     }
 
+    async renderPRMetricsChart() {
+        try {
+            const metricsData = await api.getPRMetrics(this.timelineDays);
+            const ctx = document.getElementById('pr-metrics-chart');
+
+            // Destroy existing chart if it exists
+            if (this.prMetricsChart) {
+                this.prMetricsChart.destroy();
+            }
+
+            // Create new line chart with dual Y-axes
+            this.prMetricsChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: metricsData.dates,
+                    datasets: [
+                        {
+                            label: 'Avg Runs per PR',
+                            data: metricsData.avg_runs_per_pr,
+                            borderColor: '#667eea',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                            yAxisID: 'y-runs'
+                        },
+                        {
+                            label: 'Avg Wait Time (min)',
+                            data: metricsData.avg_wait_minutes,
+                            borderColor: '#f59e0b',
+                            backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                            fill: true,
+                            tension: 0.3,
+                            yAxisID: 'y-time'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 2.5,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        title: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        },
+                        'y-runs': {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Avg Runs per PR'
+                            },
+                            ticks: {
+                                stepSize: 1
+                            }
+                        },
+                        'y-time': {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Avg Wait Time (minutes)'
+                            },
+                            grid: {
+                                drawOnChartArea: false, // Only show grid for left axis
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error rendering PR metrics chart:', error);
+        }
+    }
+
     async setTimelineRange(days) {
         this.timelineDays = days;
-        await this.renderTimelineChart();
-        await this.renderDurationChart();
+
+        // Update charts based on active tab
+        if (this.currentStatsTab === 'overview') {
+            await this.renderTimelineChart();
+            await this.renderDurationChart();
+            await this.renderPRMetricsChart();
+        } else if (this.currentStatsTab === 'failures') {
+            await this.renderFailureTimelineChart();
+        }
 
         // Update button states
         document.querySelectorAll('.range-button').forEach(btn => {
             btn.classList.remove('active');
         });
         event.target.classList.add('active');
+    }
 
-        // Update title
-        const timeRangeLabel = days === 30 ? 'Last Month' :
-                               days === 90 ? 'Last 3 Months' :
-                               days === 180 ? 'Last 6 Months' :
-                               `Last ${days} Days`;
-        document.querySelector('#stats-view h2').textContent = `Success/Failure Over Time (${timeRangeLabel})`;
+    async renderFailureTimelineChart() {
+        try {
+            const data = await api.getFailureTimeline(this.timelineDays);
+
+            // Destroy existing chart if it exists
+            if (this.failureTimelineChart) {
+                this.failureTimelineChart.destroy();
+            }
+
+            const ctx = document.getElementById('failure-timeline-chart');
+            this.failureTimelineChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.dates,
+                    datasets: [{
+                        label: 'Failed Tests',
+                        data: data.failed_tests,
+                        borderColor: '#f8d7da',
+                        backgroundColor: 'rgba(248, 215, 218, 0.2)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 3,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error rendering failure timeline chart:', error);
+        }
+    }
+
+    async renderFailureSuiteChart() {
+        try {
+            const data = await api.getFailuresBySuite();
+
+            // Destroy existing chart if it exists
+            if (this.failureSuiteChart) {
+                this.failureSuiteChart.destroy();
+            }
+
+            const ctx = document.getElementById('failure-suite-chart');
+            this.failureSuiteChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: data.suites,
+                    datasets: [{
+                        data: data.failures,
+                        backgroundColor: [
+                            '#667eea',
+                            '#764ba2',
+                            '#f093fb',
+                            '#4facfe',
+                            '#43e97b',
+                            '#fa709a',
+                            '#fee140',
+                            '#30cfd0'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 1.5,
+                    plugins: {
+                        legend: {
+                            position: 'right'
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error rendering failure suite chart:', error);
+        }
+    }
+
+    async renderTopFailingTestsChart() {
+        try {
+            const data = await api.getTopFailingTests(10);
+
+            // Destroy existing chart if it exists
+            if (this.topFailingTestsChart) {
+                this.topFailingTestsChart.destroy();
+            }
+
+            // Truncate test names for display
+            const truncatedLabels = data.tests.map(name =>
+                name.length > 50 ? name.substring(0, 47) + '...' : name
+            );
+
+            const ctx = document.getElementById('top-failing-tests-chart');
+            this.topFailingTestsChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: truncatedLabels,
+                    datasets: [{
+                        label: 'Failures',
+                        data: data.failures,
+                        backgroundColor: '#f8d7da',
+                        borderColor: '#721c24',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    aspectRatio: 1,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error rendering top failing tests chart:', error);
+        }
     }
 }
 

@@ -163,3 +163,177 @@ def get_duration():
         duration_data['aborted_hours'].append(round((row.aborted_seconds or 0) / 3600, 2))
 
     return jsonify(duration_data)
+
+
+@bp.route('/pr-metrics', methods=['GET'])
+def get_pr_metrics():
+    """Get PR metrics over time (average runs per PR and wait time)."""
+    db = get_db_session()
+
+    # Optional date range filters
+    days = request.args.get('days', default=30, type=int)
+
+    # Calculate the cutoff date
+    from datetime import timedelta
+    from sqlalchemy import distinct
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Query to get PR metrics grouped by date
+    # For each day, calculate:
+    # 1. Average number of test runs per PR
+    # 2. Average wait time from PR creation to first test run
+
+    # First, get PRs with their creation dates and first run times
+    from sqlalchemy.sql import text
+
+    # Use a subquery to get the first test run for each PR
+    subquery = db.query(
+        TestRun.pr_number,
+        func.min(TestRun.started_at).label('first_run_at')
+    ).filter(
+        TestRun.started_at.isnot(None)
+    ).group_by(
+        TestRun.pr_number
+    ).subquery()
+
+    # Join with PRs to get creation dates and calculate wait times
+    pr_data = db.query(
+        func.date(PullRequest.created_at).label('date'),
+        PullRequest.pr_number,
+        func.count(TestRun.id).label('run_count'),
+        func.extract('epoch', subquery.c.first_run_at - PullRequest.created_at).label('wait_seconds')
+    ).join(
+        TestRun, TestRun.pr_number == PullRequest.pr_number
+    ).outerjoin(
+        subquery, subquery.c.pr_number == PullRequest.pr_number
+    ).filter(
+        PullRequest.created_at >= cutoff_date,
+        PullRequest.created_at.isnot(None)
+    ).group_by(
+        func.date(PullRequest.created_at),
+        PullRequest.pr_number,
+        subquery.c.first_run_at,
+        PullRequest.created_at
+    ).all()
+
+    # Group by date and calculate averages
+    from collections import defaultdict
+    daily_metrics = defaultdict(lambda: {'run_counts': [], 'wait_times': []})
+
+    for row in pr_data:
+        if row.date:
+            date_str = row.date.isoformat()
+            daily_metrics[date_str]['run_counts'].append(row.run_count)
+            if row.wait_seconds and row.wait_seconds > 0:
+                # Convert to minutes and ensure it's a float
+                daily_metrics[date_str]['wait_times'].append(float(row.wait_seconds) / 60)
+
+    # Calculate averages and format response
+    metrics_data = {
+        'dates': [],
+        'avg_runs_per_pr': [],
+        'avg_wait_minutes': []
+    }
+
+    for date_str in sorted(daily_metrics.keys()):
+        metrics = daily_metrics[date_str]
+        metrics_data['dates'].append(date_str)
+
+        # Average runs per PR
+        avg_runs = sum(metrics['run_counts']) / len(metrics['run_counts']) if metrics['run_counts'] else 0
+        metrics_data['avg_runs_per_pr'].append(round(avg_runs, 2))
+
+        # Average wait time in minutes
+        avg_wait = sum(metrics['wait_times']) / len(metrics['wait_times']) if metrics['wait_times'] else 0
+        metrics_data['avg_wait_minutes'].append(round(avg_wait, 2))
+
+    return jsonify(metrics_data)
+
+
+@bp.route('/failures-by-suite', methods=['GET'])
+def get_failures_by_suite():
+    """Get failure counts grouped by test suite."""
+    db = get_db_session()
+
+    # Query failed test cases grouped by test suite
+    results = db.query(
+        TestCase.test_suite,
+        func.count(TestCase.id).label('failures')
+    ).filter(
+        TestCase.status == 'failed'
+    ).group_by(
+        TestCase.test_suite
+    ).order_by(
+        func.count(TestCase.id).desc()
+    ).all()
+
+    suite_data = {
+        'suites': [row.test_suite for row in results],
+        'failures': [int(row.failures) for row in results]
+    }
+
+    return jsonify(suite_data)
+
+
+@bp.route('/top-failing-tests', methods=['GET'])
+def get_top_failing_tests():
+    """Get top 10 most frequently failing tests."""
+    db = get_db_session()
+
+    limit = request.args.get('limit', default=10, type=int)
+
+    # Query failed test cases grouped by test name
+    results = db.query(
+        TestCase.test_name,
+        func.count(TestCase.id).label('failures')
+    ).filter(
+        TestCase.status == 'failed'
+    ).group_by(
+        TestCase.test_name
+    ).order_by(
+        func.count(TestCase.id).desc()
+    ).limit(limit).all()
+
+    test_data = {
+        'tests': [row.test_name for row in results],
+        'failures': [int(row.failures) for row in results]
+    }
+
+    return jsonify(test_data)
+
+
+@bp.route('/failure-timeline', methods=['GET'])
+def get_failure_timeline():
+    """Get failed test cases over time (daily aggregation)."""
+    db = get_db_session()
+
+    # Optional date range filters
+    days = request.args.get('days', default=30, type=int)
+
+    # Calculate the cutoff date
+    from datetime import timedelta
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Query test cases joined with test runs to get dates
+    results = db.query(
+        func.date(TestRun.started_at).label('date'),
+        func.count(TestCase.id).label('failed_tests')
+    ).join(
+        TestCase, TestCase.run_id == TestRun.id
+    ).filter(
+        TestRun.started_at.isnot(None),
+        TestRun.started_at >= cutoff_date,
+        TestCase.status == 'failed'
+    ).group_by(
+        func.date(TestRun.started_at)
+    ).order_by(
+        func.date(TestRun.started_at)
+    ).all()
+
+    # Format the results
+    timeline_data = {
+        'dates': [row.date.isoformat() if row.date else None for row in results],
+        'failed_tests': [int(row.failed_tests) for row in results]
+    }
+
+    return jsonify(timeline_data)

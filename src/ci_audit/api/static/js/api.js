@@ -64,7 +64,7 @@ class APIClient {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                pr_number: parseInt(prNumber),
+                pr_number: prNumber,  // Send as-is (string or int) - backend will parse
                 repo_owner: repoOwner,
                 repo_name: repoName,
                 force: force
@@ -100,6 +100,40 @@ class APIClient {
 
     async getDuration(days = 30) {
         return await this.request(`/api/stats/duration?days=${days}`);
+    }
+
+    async getPRMetrics(days = 30) {
+        return await this.request(`/api/stats/pr-metrics?days=${days}`);
+    }
+
+    async validatePR(prNumber, repoOwner = null, repoName = null) {
+        let url = `/api/queue/validate-pr/${prNumber}`;
+        const params = new URLSearchParams();
+
+        if (repoOwner) {
+            params.append('repo_owner', repoOwner);
+        }
+        if (repoName) {
+            params.append('repo_name', repoName);
+        }
+
+        if (params.toString()) {
+            url += `?${params}`;
+        }
+
+        return await this.request(url);
+    }
+
+    async getFailuresBySuite() {
+        return await this.request('/api/stats/failures-by-suite');
+    }
+
+    async getTopFailingTests(limit = 10) {
+        return await this.request(`/api/stats/top-failing-tests?limit=${limit}`);
+    }
+
+    async getFailureTimeline(days = 30) {
+        return await this.request(`/api/stats/failure-timeline?days=${days}`);
     }
 }
 

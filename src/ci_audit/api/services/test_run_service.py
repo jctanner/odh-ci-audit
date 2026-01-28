@@ -1,6 +1,7 @@
 """Service layer for test run operations."""
 
 from typing import Dict, List, Optional
+from datetime import timezone
 from sqlalchemy import func, desc
 from sqlalchemy.orm import Session
 
@@ -148,8 +149,8 @@ class TestRunService:
             'pr_number': test_run.pr_number,
             'job_name': test_run.job_name,
             'result': result,
-            'started_at': test_run.started_at.isoformat() if test_run.started_at else None,
-            'finished_at': test_run.finished_at.isoformat() if test_run.finished_at else None,
+            'started_at': test_run.started_at.replace(tzinfo=timezone.utc).isoformat() if test_run.started_at else None,
+            'finished_at': test_run.finished_at.replace(tzinfo=timezone.utc).isoformat() if test_run.finished_at else None,
             'duration_seconds': test_run.duration_seconds,
             'gcs_path': test_run.gcs_path,
             'e2e_log_path': test_run.e2e_log_path,
@@ -161,8 +162,8 @@ class TestRunService:
                 'title': pr.title,
                 'author': pr.author,
                 'state': pr.state,
-                'created_at': pr.created_at.isoformat() if pr.created_at else None,
-                'merged_at': pr.merged_at.isoformat() if pr.merged_at else None,
+                'created_at': pr.created_at.replace(tzinfo=timezone.utc).isoformat() if pr.created_at else None,
+                'merged_at': pr.merged_at.replace(tzinfo=timezone.utc).isoformat() if pr.merged_at else None,
             } if pr else None,
             'test_stats': {
                 'total': total_tests or 0,
@@ -215,8 +216,8 @@ class TestRunService:
             'pr_number': test_run.pr_number,
             'job_name': test_run.job_name,
             'result': result,
-            'started_at': test_run.started_at.isoformat() if test_run.started_at else None,
-            'finished_at': test_run.finished_at.isoformat() if test_run.finished_at else None,
+            'started_at': test_run.started_at.replace(tzinfo=timezone.utc).isoformat() if test_run.started_at else None,
+            'finished_at': test_run.finished_at.replace(tzinfo=timezone.utc).isoformat() if test_run.finished_at else None,
             'duration_seconds': test_run.duration_seconds,
             'gcs_path': test_run.gcs_path,
             'e2e_log_path': test_run.e2e_log_path,
@@ -236,3 +237,88 @@ class TestRunService:
             'failure_message': test_case.failure_message,
             'stacktrace': test_case.failure_stacktrace
         }
+
+    def get_test_run_summary(self, build_id: str) -> Optional[Dict]:
+        """
+        Get aggregated summary for a test run.
+
+        Returns test counts, duration, and result status.
+        """
+        # Get the test run
+        test_run = self.db.query(TestRun).filter(
+            TestRun.build_id == build_id
+        ).first()
+
+        if not test_run:
+            return None
+
+        # Count test cases by status
+        total_tests = self.db.query(func.count(TestCase.id)).filter(
+            TestCase.run_id == test_run.id
+        ).scalar() or 0
+
+        passed_tests = self.db.query(func.count(TestCase.id)).filter(
+            TestCase.run_id == test_run.id,
+            TestCase.status == 'passed'
+        ).scalar() or 0
+
+        failed_tests = self.db.query(func.count(TestCase.id)).filter(
+            TestCase.run_id == test_run.id,
+            TestCase.status == 'failed'
+        ).scalar() or 0
+
+        skipped_tests = self.db.query(func.count(TestCase.id)).filter(
+            TestCase.run_id == test_run.id,
+            TestCase.status == 'skipped'
+        ).scalar() or 0
+
+        # Set result to "PENDING" if NULL
+        result = test_run.result if test_run.result else "PENDING"
+
+        return {
+            'build_id': build_id,
+            'pr_number': test_run.pr_number,
+            'job_name': test_run.job_name,
+            'result': result,
+            'total_tests': total_tests,
+            'passed': passed_tests,
+            'failed': failed_tests,
+            'skipped': skipped_tests,
+            'duration_seconds': test_run.duration_seconds,
+            'started_at': test_run.started_at.replace(tzinfo=timezone.utc).isoformat() if test_run.started_at else None,
+            'finished_at': test_run.finished_at.replace(tzinfo=timezone.utc).isoformat() if test_run.finished_at else None
+        }
+
+    def get_test_failures(self, build_id: str) -> List[Dict]:
+        """
+        Get only failed test cases for a test run.
+
+        Returns detailed failure information including messages and stacktraces.
+        """
+        # Get the test run
+        test_run = self.db.query(TestRun).filter(
+            TestRun.build_id == build_id
+        ).first()
+
+        if not test_run:
+            return []
+
+        # Get failed test cases
+        failed_tests = self.db.query(TestCase).filter(
+            TestCase.run_id == test_run.id,
+            TestCase.status == 'failed'
+        ).all()
+
+        return [
+            {
+                'test_suite': tc.test_suite,
+                'test_name': tc.test_name,
+                'duration_seconds': tc.duration_seconds,
+                'failure_message': tc.failure_message,
+                'failure_type': tc.failure_type,
+                'stacktrace': tc.failure_stacktrace,
+                'system_out': tc.system_out,
+                'system_err': tc.system_err
+            }
+            for tc in failed_tests
+        ]

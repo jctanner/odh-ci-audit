@@ -1,8 +1,9 @@
 """Service layer for log operations."""
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict
 from pathlib import Path
 import logging
+import re
 from sqlalchemy.orm import Session
 
 from ci_audit.database.models import TestRun, BuildLog
@@ -102,3 +103,100 @@ class LogService:
         except Exception as e:
             logger.warning(f"Error validating path {path}: {e}")
             return False
+
+    def search_log(self, build_id: str, pattern: str, context_lines: int = 2) -> Tuple[List[Dict], Optional[str]]:
+        """
+        Search build log for a pattern (server-side grep).
+
+        Args:
+            build_id: Unique build identifier
+            pattern: Regex pattern to search for
+            context_lines: Number of context lines to include around matches
+
+        Returns:
+            Tuple of (matches, error_message)
+            matches is a list of dicts with line_number, line, and context
+        """
+        # Get build log content
+        content, error = self.get_build_log(build_id)
+        if error:
+            return [], error
+
+        return self._search_content(content, pattern, context_lines), None
+
+    def search_e2e_log(self, build_id: str, pattern: str, context_lines: int = 2) -> Tuple[List[Dict], Optional[str]]:
+        """
+        Search e2e log for a pattern (server-side grep).
+
+        Args:
+            build_id: Unique build identifier
+            pattern: Regex pattern to search for
+            context_lines: Number of context lines to include around matches
+
+        Returns:
+            Tuple of (matches, error_message)
+            matches is a list of dicts with line_number, line, and context
+        """
+        # Get e2e log content
+        content, error = self.get_e2e_log(build_id)
+        if error:
+            return [], error
+
+        return self._search_content(content, pattern, context_lines), None
+
+    def _search_content(self, content: str, pattern: str, context_lines: int) -> List[Dict]:
+        """
+        Search content for pattern and return matches with context.
+
+        Args:
+            content: Log content to search
+            pattern: Regex pattern to search for
+            context_lines: Number of context lines around matches
+
+        Returns:
+            List of match dicts with line_number, line, and optional context
+        """
+        try:
+            regex = re.compile(pattern, re.IGNORECASE)
+        except re.error as e:
+            logger.warning(f"Invalid regex pattern '{pattern}': {e}")
+            # Fall back to literal string match
+            regex = re.compile(re.escape(pattern), re.IGNORECASE)
+
+        lines = content.split('\n')
+        matches = []
+
+        for i, line in enumerate(lines):
+            if regex.search(line):
+                match = {
+                    'line_number': i + 1,
+                    'line': line
+                }
+
+                # Add context if requested
+                if context_lines > 0:
+                    context_before = []
+                    context_after = []
+
+                    # Get context before
+                    for j in range(max(0, i - context_lines), i):
+                        context_before.append({
+                            'line_number': j + 1,
+                            'line': lines[j]
+                        })
+
+                    # Get context after
+                    for j in range(i + 1, min(len(lines), i + context_lines + 1)):
+                        context_after.append({
+                            'line_number': j + 1,
+                            'line': lines[j]
+                        })
+
+                    if context_before:
+                        match['context_before'] = context_before
+                    if context_after:
+                        match['context_after'] = context_after
+
+                matches.append(match)
+
+        return matches
